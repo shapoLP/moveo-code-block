@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Code Block</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            padding: 20px;
+            text-align: center;
+            background-color: whitesmoke;
+        }
+
+        #editor {
+            width: 100%;
+            height: 150px;
+            margin: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h3 id="codeBlockTitle"></h3>
+    <div id="editor"></div>
+
+    <script>
+        const socket = io();
+        let userId = createUserId();
+        let blockId;
+
+        // Function to update the code block display
+        function updateCodeBlock({ title, code } = {}) {
+            const codeBlockTitleElement = document.getElementById("codeBlockTitle");
+            if (title) {
+                codeBlockTitleElement.innerText = title;
+            }
+            if (code) {
+                editor.setValue(code);
+            }
+        }
+
+        // Socket to handle real-time code updates from the server
+        socket.on("codeUpdate", function ({ code, blockId: updatedBlockId }) {
+            if (updatedBlockId === blockId) {
+                updateCodeBlock({ code });
+            }
+        });
+
+        // Function to send code updates to the server
+        function sendCodeUpdate(userId, code, blockId) {
+            socket.emit("codeChange", { userId, code, blockId });
+        }
+
+        function createUserId() {
+            let userId = localStorage.getItem('userId');
+            if (!userId) {
+                userId = [...Array(20)].map(() => Math.floor(Math.random() * 10)).join('');
+                localStorage.setItem('userId', userId);
+            }
+            return userId;
+        }
+
+        function registerToCodeBlock(blockId) {
+            return fetch("/register", {
+                method: "POST",
+                body: JSON.stringify({ userId, blockId }),
+                headers: { "Content-type": "application/json; charset=UTF-8" }
+            })
+                .then(response => response.json());
+        }
+
+        // CodeMirror Editor Initialization
+        const editor = CodeMirror(document.getElementById("editor"), {
+            mode: "javascript",
+            lineNumbers: true
+        });
+
+        // Setup for mentor/student roles
+        window.onload = function () {
+            fetch("/codeblocks")
+                .then(response => response.json())
+                .then(codeBlocks => {
+                    blockId = parseInt(new URLSearchParams(window.location.search).get("block"), 10);
+                    if (isNaN(blockId) || blockId >= codeBlocks.length) {
+                        document.getElementById("codeBlockTitle").innerText = "Code block not found";
+                        return;
+                    }
+                    updateCodeBlock(codeBlocks[blockId]);
+                    registerToCodeBlock(blockId).then(({ isMentor }) => {
+                        editor.setOption("readOnly", isMentor ? "nocursor" : false);
+                    });
+                    editor.on("change", function (cm) {
+                        sendCodeUpdate(userId, cm.getValue(), blockId);
+                    });
+                })
+                .catch(error => console.error("Error:", error));
+        };
+    </script>
+</body>
+
+</html>
